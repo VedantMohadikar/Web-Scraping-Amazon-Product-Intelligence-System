@@ -1,62 +1,66 @@
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
+import csv
 from bs4 import BeautifulSoup
 import pandas as pd
-import time
+from selenium import webdriver
 
-PRODUCT_URL = "https://www.amazon.in/VAYA-Hautechef-Pre-Seasoned-Cast-Kadhai/dp/B0F44BLP6X/"
-PRICE_ALERT_THRESHOLD = 3000  
-CSV_FILE = "amazon_product.csv"
+def get_url(search_term):
+    '''Generate a url from search term'''
+    template = "https://www.amazon.com/s?k={}&ref=nb_sb_noss_2"
+    search_term = search_term.replace(' ', '+')
+    
+    # add term query to url
+    url = template.format(search_term)
+    
+    return url
 
+def extract_record(item):
+    '''Extract and return data from a single record'''
+    
+    atag = item.h2.a
+    description = atag.text.strip()
+    
+    try:
+        price_parent = item.find('span', 'a-price')
+        price = price_parent.find('span', 'a-offscreen').text
+    except AttributeError:
+        return
+    
+    try:
+        rating = item.i.text
+    except AttributeError:
+        rating = ''
+    
+    result = (description, price, rating)
+    
+    return result
 
-# Setup Selenium
-options = Options()
-options.add_argument("--headless")
-options.add_argument("--disable-blink-features=AutomationControlled")
+def main(search_term):
+    '''Run main program routine'''
+    # startup the web driver
+    driver = webdriver.Chrome('/home/soham/pypypy/chromedriver')
+    
+    records = []
+    url = get_url(search_term)
 
-driver = webdriver.Chrome(options=options)
+    driver.get(url)
+    soup = BeautifulSoup(driver.page_source, 'html.parser')
+    results = soup.find_all('div', {'data-component-type': 's-search-result'})
 
-def get_text(soup, selector):
-    element = soup.select_one(selector)
-    return element.text.strip() if element else "N/A"
+    for item in results:
+        record = extract_record(item)
+        if record:
+            records.append(record)
+    driver.close()
 
-print("Opening Amazon product page...")
-driver.get(PRODUCT_URL)
-time.sleep(4)  # wait for page rendering
+    #save the data
 
-soup = BeautifulSoup(driver.page_source, "html.parser")
-
-# Scrape product info
-title = get_text(soup, "#productTitle")
-price_text = get_text(soup, ".a-price-whole").replace(",", "")
-rating = get_text(soup, ".a-icon-alt")
-
-# Convert price to int (if possible)
-try:
-    price = int(price_text)
-except:
-    price = None
-
-driver.quit()
-
-# Prepare data
-data = [{
-    "Product Title": title,
-    "Price (INR)": price,
-    "Rating": rating,
-    "Product URL": PRODUCT_URL
-}]
-
-# Save to CSV
-df = pd.DataFrame(data)
-df.to_csv(CSV_FILE, index=False)
-print(f"\n✅ Data saved to CSV: {CSV_FILE}")
-
-# Price alert
-print("\nChecking for price drops...")
-if price and price < PRICE_ALERT_THRESHOLD:
-    print(f"🚨 PRICE DROP ALERT! {title} is now ₹{price}")
-else:
-    print("No price drop detected.")
-
-print("\nScraping completed.")
+    with open('results.csv', 'w', newline = '', encoding = 'utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow(['Description', 'Price', 'Rating'])
+        writer.writerows(records)
+        
+    df = pd.read_csv('results.csv')
+    print (df) 
+        
+n = input("Enter search query: ")
+main(n)
